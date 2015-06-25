@@ -14,3 +14,4 @@ cabal.sandbox.config
 dist/
 tags
 /.docker-sandbox/
+/_build/
