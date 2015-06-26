@@ -108,13 +108,12 @@ rules global@Global{..} args = do
         Stdout dirty <- cmd "git status --porcelain"
         when (not gAllowDirty && not (null (trim dirty))) $
             error "Working tree is dirty.  Use --allow-dirty option to continue anyway."
-        let instBinDir = gLocalInstallRoot </> "bin"
-            instExeFile = instBinDir </> stackExeFileName
-            tmpExeFile = instBinDir </> stackExeFileName <.> "tmp"
+        let instExeFile = installBinDir </> stackExeFileName
+            tmpExeFile = installBinDir </> stackExeFileName <.> "tmp"
         --FIXME: once 'stack install --path' implemented, use it instead of this temp file.
         liftIO $ renameFile instExeFile tmpExeFile
         actionFinally
-            (do opt <- addPath [gLocalInstallRoot </> "bin"] []
+            (do opt <- addPath [installBinDir] []
                 () <- cmd opt "stack build"
                 () <- cmd opt "stack clean"
                 () <- cmd opt "stack build --pedantic"
@@ -126,7 +125,7 @@ rules global@Global{..} args = do
     buildDir </> stackExeFileName %> \out -> do
         alwaysRerun
         () <- cmd "stack build"
-        copyFileChanged (gLocalInstallRoot </> "bin/stack") out
+        copyFileChanged (installBinDir </> stackExeFileName) out
 
     --FIXME: will need different rule on Windows to make a .zip
     case platformOS of
@@ -166,6 +165,7 @@ rules global@Global{..} args = do
     releaseCheckDir = releaseDir </> "check"
     releaseUploadDir = releaseDir </> "upload"
     releaseDir = buildDir </> "release"
+    installBinDir = gLocalInstallRoot </> "bin"
 
     stackExeFileName = "stack" <.> exe
     releaseFileNames = [releaseExeCompressedFileName, releaseExeCompressedAscFileName]
@@ -174,7 +174,7 @@ rules global@Global{..} args = do
         case platformOS of
             Windows -> releaseExeZipFileName
             _ -> releaseExeGzFileName
-    releaseExeZipFileName = releaseExeFileName <.> zipExt
+    releaseExeZipFileName = releaseExeFileName -<.> zipExt
     releaseExeGzFileName = releaseExeFileName <.> gzExt
     releaseExeFileName = releaseName global <.> exe
 
