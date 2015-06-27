@@ -122,36 +122,45 @@ rules global@Global{..} args = do
             (renameFile tmpExeFile instExeFile)
         copyFile' (buildDir </> stackExeFileName) out
 
-    buildDir </> stackExeFileName %> \out -> do
-        alwaysRerun
-        () <- cmd "stack build"
-        copyFileChanged (installBinDir </> stackExeFileName) out
+    releaseDir </> releaseExeZipFileName %> \out -> do
+        need [releaseDir </> stackExeFileName]
+        liftIO $ do
+            --XXX TEST (ensure file in root and filename correct)
+            entry <- Zip.readEntry [] (releaseDir </> stackExeFileName)
+            let entry' = entry{Zip.eRelativePath = stackExeFileName}
+                archive = Zip.addEntryToArchive entry' Zip.emptyArchive
+            L8.writeFile out (Zip.fromArchive archive)
 
-    --FIXME: will need different rule on Windows to make a .zip
-    case platformOS of
-        Windows ->
-            releaseDir </> releaseExeZipFileName %> \out -> do
-                need [buildDir </> stackExeFileName]
-                liftIO $ do
-                    --XXX TEST (ensure file in root)
-                    archive <-
-                        Zip.addFilesToArchive [] Zip.emptyArchive [buildDir </> stackExeFileName]
-                    L8.writeFile out (Zip.fromArchive archive)
-        _ ->
-            releaseDir </> releaseExeGzFileName %> \out -> do
-                need [buildDir </> stackExeFileName]
-                withTempDir $ \tmp -> do
-                    copyFile' (buildDir </> stackExeFileName) (tmp </> stackExeFileName)
-                    () <- cmd "strip" [tmp </> stackExeFileName]
-                    liftIO $ do
-                        fc <- L8.readFile (tmp </> stackExeFileName)
-                        L8.writeFile out $ GZip.compress fc
+    releaseDir </> releaseExeGzFileName %> \out -> do
+        need [releaseDir </> stackExeFileName]
+        liftIO $ do
+            fc <- L8.readFile (releaseDir </> stackExeFileName)
+            L8.writeFile out $ GZip.compress fc
+
+    releaseDir </> stackExeFileName %> \out ->
+        case platformOS of
+            Windows ->
+                -- Windows doesn't have or need a 'strip' command, so skip it.
+                --XXX TEST
+                copyFile' (buildDir </> stackExeFileName) out
+            Linux ->
+                --XXX TEST
+                cmd "strip -p --strip-unneeded --remove-section=.comment -o"
+                    [out, buildDir </> stackExeFileName]
+            _ ->
+                cmd "strip -o"
+                    [out, buildDir </> stackExeFileName]
 
     releaseDir </> releaseExeCompressedAscFileName %> \out -> do
         let gpgKey = fromMaybe (error "GPG key required.  Use --gpg-key option to specify.") gGpgKey
         need [out -<.> ""]
         _ <- liftIO $ tryJust (guard . isDoesNotExistError) (removeFile out)
         cmd "gpg --detach-sig --armor -u" [gpgKey] [out -<.> ""]
+
+    buildDir </> stackExeFileName %> \out -> do
+        alwaysRerun
+        () <- cmd "stack build"
+        copyFileChanged (installBinDir </> stackExeFileName) out
 
   where
     buildPhony = "build"
@@ -174,9 +183,10 @@ rules global@Global{..} args = do
         case platformOS of
             Windows -> releaseExeZipFileName
             _ -> releaseExeGzFileName
-    releaseExeZipFileName = releaseExeFileName -<.> zipExt
+    releaseExeZipFileName = releaseExeFileNameNoExt <.> zipExt
     releaseExeGzFileName = releaseExeFileName <.> gzExt
-    releaseExeFileName = releaseName global <.> exe
+    releaseExeFileName = releaseExeFileNameNoExt <.> exe
+    releaseExeFileNameNoExt = releaseName global
 
     zipExt = "zip"
     gzExt = "gz"
